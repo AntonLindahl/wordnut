@@ -278,7 +278,6 @@ class WordGameBot:
                 ocr_configs = [
                     '-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 13 --oem 3', # Good for single chars like 'I'
                     '-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 8 --oem 3',  # Treat the image as a single text line (more flexible than 13)
-                    '-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 10 --oem 3',
                 ]
 
                 # Try each OCR config for the current preprocessed image
@@ -355,10 +354,10 @@ class WordGameBot:
             # Try 5 letter game area
             self.letter_rois_relative = {
                 "top_letter": (210, 102, 66, 60),
-                "left_letter": (75, 202, 66, 60),
-                "right_letter": (347, 202, 66, 60),
-                "bottom_left_letter": (127, 360, 66, 60),
-                "bottom_right_letter": (295, 360, 66, 60),
+                "left_letter": (78, 200, 66, 60),
+                "right_letter": (347, 200, 66, 60),
+                "bottom_left_letter": (127, 358, 66, 60),
+                "bottom_right_letter": (295, 358, 66, 60),
                 # "center_letter": (205, 222, 70, 70) # Removed as per user request
             }
             detected_letters = self.detect_letters_from_positions(image_cropped_to_region)
