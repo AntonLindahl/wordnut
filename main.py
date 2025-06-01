@@ -26,19 +26,82 @@ class WordGameBot:
         # Dynamically load all image files from a new folder for full-screen checks
         self.x_button_templates_full = self.load_templates_from_folder("collect_buttons") # New attribute
 
-        # *** PRECISELY CALCULATED letter_rois_relative BASED ON YOUR PROVIDED GAME AREA AND OCR DATA ***
-        # Updated with the new values provided by the user.
-        # Removed "center_letter" as requested.
-        # Format: (x_relative, y_relative, width, height) relative to the top-left of the game area.
+        self.level_button_template_path = "templates/level_button.png" # Path to your level button template
 
-        self.letter_rois_relative = {
-            "top_letter": (210, 100, 60, 60),
-            "left_letter": (95, 173, 60, 60),
-            "right_letter": (341, 173, 60, 60),
-            "bottom_left_letter": (90, 317, 60, 60),
-            "bottom_right_letter": (343, 317, 60, 60),
-            "bottom_middle_letter": (210, 390, 60, 60),
+
+        # Store both ROI configurations
+        self.letter_rois_relative_7_letters = {
+            "top_letter": (208, 78, 66, 60),
+            "left_letter": (90, 132, 66, 60),
+            "right_letter": (320, 132, 66, 60),
+            "bottom_left_letter": (58, 260, 66, 60),
+            "bottom_right_letter": (350, 260, 66, 60),
+            "bottom_lower_left_letter": (140, 360, 66, 60),
+            "bottom_lower_right_letter": (265, 360, 66, 60),
         }
+
+        self.letter_rois_relative_6_letters = {
+            "top_letter": (212, 98, 66, 60),
+            "left_letter": (90, 171, 66, 60),
+            "right_letter": (341, 171, 66, 60),
+            "bottom_left_letter": (89, 315, 66, 60),
+            "bottom_right_letter": (339, 315, 66, 60),
+            "bottom_middle_letter": (210, 388, 66, 60),
+        }
+
+        self.letter_rois_relative_5_letters = {
+            "top_letter": (210, 102, 66, 60),
+            "left_letter": (78, 200, 66, 60),
+            "right_letter": (347, 200, 66, 60),
+            "bottom_left_letter": (127, 358, 66, 60),
+            "bottom_right_letter": (295, 358, 66, 60),
+        }
+
+        # self.letter_rois_relative will be set dynamically by detect_game_layout
+        self.letter_rois_relative = None
+
+    # Add this new method to your WordGameBot class
+    def find_and_click_level_button(self) -> bool:
+        """
+        Attempts to find and click the 'Start Level' button using template matching.
+        Returns True if clicked, False otherwise.
+        """
+        print("Attempting to find 'Start Level' button...")
+
+        try:
+            screenshot = pyautogui.screenshot()
+            screenshot_cv = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
+            screenshot_gray = cv2.cvtColor(screenshot_cv, cv2.COLOR_BGR2GRAY)
+
+            template = cv2.imread(self.level_button_template_path)
+            if template is None:
+                print(f"Warning: Could not load level button template: {self.level_button_template_path}. Skipping.")
+                return False
+
+            template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
+
+            result = cv2.matchTemplate(screenshot_gray, template_gray, cv2.TM_CCOEFF_NORMED)
+            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+
+            confidence_threshold = 0.7 # Adjust this confidence as needed for your button
+
+            if max_val >= confidence_threshold:
+                h, w = template_gray.shape
+                center_x = max_loc[0] + w // 2
+                center_y = max_loc[1] + h // 2
+
+                print(f"'Start Level' button found at ({center_x}, {center_y}) with confidence {max_val:.2f}")
+                pyautogui.click(center_x, center_y)
+                print("Clicked level start button. Waiting for game to load...")
+                time.sleep(3) # Give time for the level to load
+                return True
+            else:
+                print(f"No 'Start Level' button found. Best confidence: {max_val:.2f}")
+                return False
+
+        except Exception as e:
+            print(f"Error finding/clicking 'Start Level' button: {e}")
+            return False
 
     def load_templates_from_folder(self, folder_path: str) -> List[str]:
         """
@@ -126,13 +189,6 @@ class WordGameBot:
             top_screenshot_cv = full_screenshot_cv[0:top_region_height, :]
             top_screenshot_gray = cv2.cvtColor(top_screenshot_cv, cv2.COLOR_BGR2GRAY)
 
-            # Create a debug image to show the scanned area for the top region
-            #debug_scan_area_top = full_screenshot_cv.copy()
-            #cv2.rectangle(debug_scan_area_top, (0, 0), (full_screenshot_cv.shape[1] - 1, top_region_height - 1), (0, 255, 0), 3)
-            #cv2.putText(debug_scan_area_top, "Scan Area (Top Region)", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
-            #cv2.imwrite("debug_x_button_scan_area_top.png", debug_scan_area_top)
-            #print(f"Saved 'debug_x_button_scan_area_top.png' showing the top scanned region.")
-
             for template_path in self.x_button_templates_top:
                 try:
                     template = cv2.imread(template_path)
@@ -144,7 +200,7 @@ class WordGameBot:
                     result = cv2.matchTemplate(top_screenshot_gray, template_gray, cv2.TM_CCOEFF_NORMED)
                     min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
 
-                    confidence_threshold = 0.90
+                    confidence_threshold = 0.90 # High confidence for top region as X buttons are often clear
 
                     if max_val >= confidence_threshold:
                         h, w = template_gray.shape
@@ -172,7 +228,7 @@ class WordGameBot:
                     result = cv2.matchTemplate(full_screenshot_gray, template_gray, cv2.TM_CCOEFF_NORMED)
                     min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
 
-                    confidence_threshold = 0.80
+                    confidence_threshold = 0.80 # Slightly lower confidence for full screen
 
                     if max_val >= confidence_threshold:
                         h, w = template_gray.shape
@@ -278,7 +334,6 @@ class WordGameBot:
                 ocr_configs = [
                     '-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 13 --oem 3', # Good for single chars like 'I'
                     '-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 8 --oem 3',  # Treat the image as a single text line (more flexible than 13)
-                    '-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 10 --oem 3',
                 ]
 
                 # Try each OCR config for the current preprocessed image
@@ -318,6 +373,9 @@ class WordGameBot:
 
             # Accept result only if confidence is reasonable
             if best_char and best_confidence > 30:  # Adjust threshold as needed
+                # Calculate global coordinates relative to the full screen, not just game area
+                # self.screen_region is (x, y, w, h) of the game area relative to full screen
+                # x_start and y_start are relative to the game area's top-left
                 center_x_global = x_start + rel_w // 2 + self.screen_region[0]
                 center_y_global = y_start + rel_h // 2 + self.screen_region[1]
                 matched_letters_coords.append((best_char, (center_x_global, center_y_global)))
@@ -333,35 +391,24 @@ class WordGameBot:
     def find_circular_letters(self) -> List[Tuple[str, Tuple[int, int]]]:
         """
         Captures the game area and then calls detect_letters_from_positions
-        to find letters using fixed ROIs.
+        to find letters using the determined fixed ROIs.
         """
+        if not self.screen_region:
+            print("Error: Game area not defined. Cannot detect letters.")
+            return []
+
+        if not self.letter_rois_relative:
+            print("Error: Letter ROIs not set. Cannot detect letters. Run detect_game_layout first.")
+            return []
+
         image_cropped_to_region = self.capture_game_area()
 
         if image_cropped_to_region is None or image_cropped_to_region.size == 0:
             print("Error: No image captured for letter detection.")
             return []
 
-        # 6 letter game area
-        self.letter_rois_relative = {
-            "top_letter": (212, 98, 66, 60),
-            "left_letter": (90, 171, 66, 60),
-            "right_letter": (341, 171, 66, 60),
-            "bottom_left_letter": (89, 315, 66, 60),
-            "bottom_right_letter": (339, 315, 66, 60),
-            "bottom_middle_letter": (210, 388, 66, 60),
-        }
+        # The letter_rois_relative will already be set by detect_game_layout
         detected_letters = self.detect_letters_from_positions(image_cropped_to_region)
-        if len(detected_letters) <= 4:
-            # Try 5 letter game area
-            self.letter_rois_relative = {
-                "top_letter": (210, 102, 66, 60),
-                "left_letter": (75, 202, 66, 60),
-                "right_letter": (347, 202, 66, 60),
-                "bottom_left_letter": (127, 360, 66, 60),
-                "bottom_right_letter": (295, 360, 66, 60),
-                # "center_letter": (205, 222, 70, 70) # Removed as per user request
-            }
-            detected_letters = self.detect_letters_from_positions(image_cropped_to_region)
 
         self.letter_positions = detected_letters
         self.available_letters = [char for char, _ in detected_letters]
@@ -424,46 +471,81 @@ class WordGameBot:
         time.sleep(0.5)
         return True
 
-    def load_game_area_from_image(self, template_path: str = "templates/game_area_template_6_letters.png"):
-        """Find the game area by matching it with a saved template image"""
+    def detect_game_layout(self) -> bool:
+        """
+        Detects which game layout (5-letter or 6-letter) is present
+        and sets self.screen_region and self.letter_rois_relative accordingly.
+        It prioritizes the template with the highest match confidence.
+        """
+        print("Detecting game layout (5-letter or 6-letter)...")
+
+        # Define templates to check and their corresponding ROI sets
+        template_configs = [
+            ("templates/game_area_template_7_letters.png", self.letter_rois_relative_7_letters, "7-letter"),
+            ("templates/game_area_template_6_letters.png", self.letter_rois_relative_6_letters, "6-letter"),
+            ("templates/game_area_template_5_letters.png", self.letter_rois_relative_5_letters, "5-letter"),
+        ]
+
+        best_match_confidence = 0.0
+        best_match_region = None
+        best_match_rois = None
+        best_match_layout_name = None
+
+        # Capture screenshot once for all template matching attempts
         try:
             screenshot = pyautogui.screenshot()
             screenshot_cv = cv2.cvtColor(np.array(screenshot), cv2.COLOR_RGB2BGR)
-
-            template = cv2.imread(template_path)
-            if template is None:
-                print(f"Could not load template image: {template_path}")
-                return False
-
-            template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
             screenshot_gray = cv2.cvtColor(screenshot_cv, cv2.COLOR_BGR2GRAY)
-
-            result = cv2.matchTemplate(screenshot_gray, template_gray, cv2.TM_CCOEFF_NORMED)
-            min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
-
-            if max_val > 0.8:
-                h, w = template_gray.shape
-                self.screen_region = (max_loc[0], max_loc[1], w, h)
-                print(f"Game area found at: {self.screen_region}")
-                print(f"Match confidence: {max_val:.2f}")
-                return True
-            else:
-                print(f"Game area not found. Best match confidence: {max_val:.2f}")
-                return False
-
         except Exception as e:
-            print(f"Error loading game area from image: {e}")
+            print(f"Error capturing screenshot for layout detection: {e}")
+            self.screen_region = None
+            self.letter_rois_relative = None
             return False
 
-    def setup_game_area(self, template_path: str = "templates/game_area_template_6_letters.png"):
-        """Setup game area using template image instead of manual calibration"""
-        print("Looking for game area using template image...")
+        if screenshot_cv is None or screenshot_cv.size == 0:
+            print("Failed to capture screenshot for layout detection.")
+            self.screen_region = None
+            self.letter_rois_relative = None
+            return False
 
-        if self.load_game_area_from_image(template_path):
-            print("Game area successfully detected!")
+        for template_path, rois, layout_name in template_configs:
+            try:
+                template = cv2.imread(template_path)
+                if template is None:
+                    print(f"Warning: Could not load template image: {template_path}. Skipping.")
+                    continue
+
+                template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
+
+                result = cv2.matchTemplate(screenshot_gray, template_gray, cv2.TM_CCOEFF_NORMED)
+                min_val, current_max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+
+                print(f"Template '{layout_name}' matched with confidence: {current_max_val:.2f}")
+
+                # Keep track of the best match found so far
+                if current_max_val > best_match_confidence:
+                    best_match_confidence = current_max_val
+                    h, w = template_gray.shape
+                    best_match_region = (max_loc[0], max_loc[1], w, h)
+                    best_match_rois = rois
+                    best_match_layout_name = layout_name
+
+            except Exception as e:
+                print(f"Error during template matching for '{template_path}': {e}. Skipping.")
+
+        # Minimum acceptable confidence for ANY layout to be considered valid
+        # This prevents selecting a low-confidence match if nothing truly good is found.
+        minimum_acceptable_confidence = 0.75 # You can adjust this value
+
+        if best_match_confidence >= minimum_acceptable_confidence:
+            self.screen_region = best_match_region
+            self.letter_rois_relative = best_match_rois
+            print(f"Best game layout detected: {best_match_layout_name} at: {self.screen_region} with confidence: {best_match_confidence:.2f}")
             return True
         else:
-            print("Failed to detect game area. Ensure the game area template is correct and visible.")
+            print(f"No game layout matched above the minimum acceptable confidence of {minimum_acceptable_confidence:.2f}. Best match was {best_match_layout_name} with {best_match_confidence:.2f}")
+            self.screen_region = None
+            self.letter_rois_relative = None
             return False
 
 
@@ -493,72 +575,56 @@ class WordGameBot:
             if success:
                 time.sleep(1)
                 # After spelling a word, re-check game area to see if level advanced or ad appeared
-                if not self.load_game_area_from_image():
-                    print("Game area disappeared. Level might be complete or an ad is showing. Returning from play_level.")
+                # Call detect_game_layout to re-evaluate the screen state
+                if not self.detect_game_layout(): # Use the new detection method
+                    print("Game area disappeared or changed. Level might be complete or an ad is showing. Returning from play_level.")
                     return # Exit play_level, loop will handle ad/re-detection
             else:
                 print(f"Failed to spell: {word} (likely missing letter positions or wrong order)")
 
-# Usage example
 if __name__ == "__main__":
     bot = WordGameBot()
-
-    # Initial setup: Find the game area once at the start.
-    # If not found, it will try again in the loop.
-    bot.setup_game_area()
 
     while True:
         print("\n--- Starting New Cycle ---")
 
-        # --- Stage 1: Check for a "Start Level" Button ---
-        start_button_found = False
-        try:
-            # You might need to adjust confidence based on your image
-            # Replace 'level_button.png' with your actual start button image name
-            level_button = pyautogui.locateOnScreen('templates/level_button.png', confidence=0.7) 
-            if level_button:
-                pyautogui.click(pyautogui.center(level_button))
-                print("Clicked level start button. Waiting for game to load...")
-                time.sleep(3) # Give time for the level to load
-                bot.screen_region = None # Invalidate game area to force re-detection on new level
-                start_button_found = True
-                continue # Go to the next cycle to detect game area/play
-            else:
-                print("No specific level start button found (assuming game already in progress or next level loads automatically).")
-        except pyautogui.PyAutoGUIException as e:
-            print(f"PyAutoGUI error locating level button: {e}. Ensure the button image exists and is visible. Continuing...")
-        
+        # --- Stage 3: If game layout and ads are NOT detected, check for a 'Start Level' button ---
+        print("No game detected and no ad button found. Checking for a 'Start Level' button or waiting.")
+        start_button_found = bot.find_and_click_level_button() # Use the new method
         if start_button_found:
-            continue # If we clicked a start button, the state has changed, re-evaluate from the top.
-
-        # Stage 1: If game area is known, attempt to play a level.
-        if bot.screen_region:
-            print("Game area is defined. Attempting to play level.")
-            bot.play_level()
-            # After playing a level, invalidate screen_region to force re-detection
-            # in the next cycle. This accounts for level transitions or ads appearing.
+            # If button was found and clicked, invalidate game area to force re-detection on new level
             bot.screen_region = None
-            time.sleep(2) # Give some time for transition or ad to appear
+            bot.letter_rois_relative = None
+            # The find_and_click_level_button already includes a sleep and prints for clicking
+            continue # Go to the next cycle to detect game area/play
+
+        # --- Stage 1: Detect the game layout (5-letter or 6-letter) first ---
+        # This will set bot.screen_region and bot.letter_rois_relative if successful
+        if bot.detect_game_layout():
+            print("Game layout successfully detected. Proceeding to play level.")
+            bot.play_level()
+            # After attempting to play, invalidate screen_region and ROIs
+            # to force re-detection on the next cycle, as levels change.
+            bot.screen_region = None
+            bot.letter_rois_relative = None
+            time.sleep(2) # Give some time for transition after a level or ad
             continue # Start next cycle to re-evaluate state
 
-        # Stage 2: If game area is NOT defined (or was invalidated), try to set it up.
-        # This will also handle cases where an ad might be overlaying the game area.
-        print("Game area not defined or invalidated. Attempting to set up game area.")
-        if bot.setup_game_area():
-            print("Game area successfully detected after re-attempt. Will try to play next cycle.")
-            time.sleep(1) # Short delay before next cycle
-            continue # Game area found, try playing in the next cycle
-
-        # Stage 3: If game area still not found (even after re-attempt),
-        # this might mean an ad is present, or the game is not active.
-        # As a last resort, check for a commercial/exit button.
-        print("\n--- Game area still not found. Checking for Commercial/Exit Button ---")
+        # --- Stage 2: If game layout is NOT detected, check for commercials/exit buttons ---
+        print("Game layout not found. Checking for Commercial/Exit Button...")
         exit_center = bot.exit_commersial()
         if exit_center:
             pyautogui.click(exit_center[0], exit_center[1])
             print("Commercial clicked. Waiting for game to load/resume...")
             time.sleep(5) # Give more time for the ad to close and game to appear
-            bot.screen_region = None # Invalidate game area to force re-detection
-        else:
-            print("No commercial 'X' button found. Waiting before next cycle to avoid rapid clicking/detection failures...")
-            time.sleep(2) # Short delay if nothing was found, to prevent busy-looping
+            # After an ad, the game state might have changed, so invalidate current detections
+            bot.screen_region = None
+            bot.letter_rois_relative = None
+            continue # Re-evaluate state from the top
+
+        # --- Stage 4: If nothing above matched, wait before next cycle ---
+        # This 'if' effectively acts as the 'else' for the start_button_found check
+        if not start_button_found:
+            print("No game detected, no start button, and no ad. Waiting before next cycle to avoid rapid clicking/detection failures...")
+            time.sleep(5) # Longer delay if nothing is found to prevent busy-looping
+            continue # Start next cycle to re-evaluate state
