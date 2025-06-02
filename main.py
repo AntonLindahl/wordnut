@@ -6,19 +6,15 @@ import pytesseract
 import itertools
 import time
 from typing import List, Tuple, Dict, Optional
-
-# Set the path to the Tesseract executable if it's not in your system's PATH.
-# Example for Windows:
-pytesseract.pytesseract.tesseract_cmd = r'C:\Program Files\Tesseract-OCR\tesseract.exe' # ADJUST THIS PATH
-# Example for Linux/macOS:
-# pytesseract.pytesseract.tesseract_cmd = '/usr/local/bin/tesseract' # Or wherever you installed it
+import argparse # Import argparse
 
 class WordGameBot:
-    def __init__(self):
+    def __init__(self, debug_mode: bool = False): # Add debug_mode parameter
         self.letter_positions: List[Tuple[str, Tuple[int, int]]] = []
         self.available_letters: List[str] = []
         self.valid_words = set()
         self.screen_region: Optional[Tuple[int, int, int, int]] = None
+        self.debug_mode = debug_mode # Store debug_mode
         self.load_word_dictionary()
 
         # Dynamically load all image files from the 'reklam' folder for top-screen checks
@@ -133,23 +129,23 @@ class WordGameBot:
     def preprocess_for_template_matching(self, image: np.ndarray, debug_prefix: str = "", invert_output: bool = True, apply_morphology: bool = True) -> np.ndarray:
         """
         Preprocesses an image for contour detection and template matching.
-        Saves intermediate steps for debugging.
+        Saves intermediate steps for debugging if debug_mode is True.
         """
         if image is None or image.size == 0:
             print(f"Warning: preprocess_for_template_matching received an empty image for {debug_prefix}")
             return np.array([])
 
         gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        if debug_prefix: cv2.imwrite(f"{debug_prefix}_01_gray.png", gray)
+        if self.debug_mode and debug_prefix: cv2.imwrite(f"{debug_prefix}_01_gray.png", gray)
 
         blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        if debug_prefix: cv2.imwrite(f"{debug_prefix}_02_blurred.png", blurred)
+        if self.debug_mode and debug_prefix: cv2.imwrite(f"{debug_prefix}_02_blurred.png", blurred)
 
         thresh_type = cv2.THRESH_BINARY_INV if invert_output else cv2.THRESH_BINARY
 
         thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
                                        thresh_type, 15, 5)
-        if debug_prefix: cv2.imwrite(f"{debug_prefix}_03_thresh.png", thresh)
+        if self.debug_mode and debug_prefix: cv2.imwrite(f"{debug_prefix}_03_thresh.png", thresh)
 
         processed = thresh
 
@@ -158,7 +154,7 @@ class WordGameBot:
             processed = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=1)
             processed = cv2.morphologyEx(processed, cv2.MORPH_OPEN, kernel, iterations=1)
 
-        if debug_prefix: cv2.imwrite(f"{debug_prefix}_04_processed.png", processed)
+        if self.debug_mode and debug_prefix: cv2.imwrite(f"{debug_prefix}_04_processed.png", processed)
 
         return processed
 
@@ -219,31 +215,7 @@ class WordGameBot:
 
             print("X button not detected in the top region. Moving to full screen check.")
 
-            # --- Stage 2: Check the full screenshot ---
-            full_screenshot_gray = cv2.cvtColor(full_screenshot_cv, cv2.COLOR_BGR2GRAY)
-
-            for template_path in self.x_button_templates_full:
-                try:
-                    template = cv2.imread(template_path)
-                    if template is None:
-                        print(f"Warning: Could not load template image: {template_path}. Skipping.")
-                        continue
-
-                    template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
-                    result = cv2.matchTemplate(full_screenshot_gray, template_gray, cv2.TM_CCOEFF_NORMED)
-                    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
-
-                    confidence_threshold = 0.80 # Slightly lower confidence for full screen
-
-                    if max_val >= confidence_threshold:
-                        h, w = template_gray.shape
-                        center_x = max_loc[0] + w // 2
-                        center_y = max_loc[1] + h // 2
-
-                        print(f"X button found (FULL SCREEN) using template '{template_path}' at ({center_x}, {center_y}) with confidence {max_val:.2f}")
-                        return (center_x, center_y)
-                except Exception as e:
-                    print(f"Error during template matching for '{template_path}' in full screen: {e}. Skipping.")
+            self.collect_buttons(full_screenshot_cv)
 
             print("X button not detected using any template in full screen. Retrying cycle.")
             time.sleep(1)
@@ -251,6 +223,32 @@ class WordGameBot:
         print(f"Timeout reached. X button not found after {timeout} seconds.")
         return False
 
+    def collect_buttons(self, full_screenshot_cv):
+        # --- Stage 2: Check the full screenshot ---
+        full_screenshot_gray = cv2.cvtColor(full_screenshot_cv, cv2.COLOR_BGR2GRAY)
+
+        for template_path in self.x_button_templates_full:
+            try:
+                template = cv2.imread(template_path)
+                if template is None:
+                    print(f"Warning: Could not load template image: {template_path}. Skipping.")
+                    continue
+
+                template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
+                result = cv2.matchTemplate(full_screenshot_gray, template_gray, cv2.TM_CCOEFF_NORMED)
+                min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
+
+                confidence_threshold = 0.80 # Slightly lower confidence for full screen
+
+                if max_val >= confidence_threshold:
+                    h, w = template_gray.shape
+                    center_x = max_loc[0] + w // 2
+                    center_y = max_loc[1] + h // 2
+
+                    print(f"X button found (FULL SCREEN) using template '{template_path}' at ({center_x}, {center_y}) with confidence {max_val:.2f}")
+                    return (center_x, center_y)
+            except Exception as e:
+                print(f"Error during template matching for '{template_path}' in full screen: {e}. Skipping.")
 
     def capture_game_area(self) -> np.ndarray:
         if self.screen_region:
@@ -276,7 +274,7 @@ class WordGameBot:
             contours, _ = cv2.findContours(binary_game_image, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
             debug_image_contours = image.copy()
             cv2.drawContours(debug_image_contours, contours, -1, (255, 0, 255), 1)
-            cv2.imwrite("debug_05_all_contours_ocr.png", debug_image_contours) # Save this image
+            if self.debug_mode: cv2.imwrite("debug_05_all_contours_ocr.png", debug_image_contours) # Save this image
 
             # Main letter detection uses fixed ROIs
             for roi_name, (rel_x, rel_y, rel_w, rel_h) in self.letter_rois_relative.items():
@@ -307,9 +305,11 @@ class WordGameBot:
                 # Added a specific simple threshold that might work well for clear 'I's
                 threshold_methods = [
                     ("otsu_inv", cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU),
-                    ("simple_inv", cv2.THRESH_BINARY_INV), # Keep this simple inverse for general cases
-                    # Consider adding a normal binary if your characters are dark on light
-                    # ("otsu_normal", cv2.THRESH_BINARY | cv2.THRESH_OTSU),
+                    ("simple_inv", cv2.THRESH_BINARY_INV),
+                    ("adaptive_mean_inv", "adaptive_mean_inv"),     # New
+                    ("adaptive_gauss_inv", "adaptive_gauss_inv"),   # New
+                    ("adaptive_mean", "adaptive_mean"),             # New
+                    ("adaptive_gauss", "adaptive_gauss"),           # New
                 ]
 
                 best_char = None
@@ -325,9 +325,9 @@ class WordGameBot:
                         # A fixed threshold (e.g., 150) can sometimes be robust for specific lighting
                         _, roi_thresh = cv2.threshold(roi_filtered, 150, 255, thresh_type_flag)
                     # Add more sophisticated adaptive thresholding if needed, e.g.,
-                    # elif method_name == "adaptive_gauss_inv":
-                    #     roi_thresh = cv2.adaptiveThreshold(roi_filtered, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                    #                                        cv2.THRESH_BINARY_INV, 15, 5)
+                    elif method_name == "adaptive_gauss_inv":
+                         roi_thresh = cv2.adaptiveThreshold(roi_filtered, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                                            cv2.THRESH_BINARY_INV, 15, 5)
 
 
                     if roi_thresh is None: continue # Skip if thresholding failed
@@ -343,13 +343,15 @@ class WordGameBot:
                     # Dilate slightly to connect broken lines, but be careful not to merge 'I' with adjacent characters
                     roi_final = cv2.dilate(roi_cleaned, kernel_dilate, iterations=1)
                     
-                    # Save processed ROI for debugging
-                    cv2.imwrite(f"debug_roi_{roi_name}_{method_name}.png", roi_final)
-                    cv2.imwrite(f"debug_roi_{roi_name}_{method_name}_inverted.png", cv2.bitwise_not(roi_final)) # Save inverted too
+                    # Save processed ROI for debugging only if debug_mode is True
+                    if self.debug_mode:
+                        cv2.imwrite(f"debug_roi_{roi_name}_{method_name}.png", roi_final)
+                        cv2.imwrite(f"debug_roi_{roi_name}_{method_name}_inverted.png", cv2.bitwise_not(roi_final)) # Save inverted too
 
                     # --- Enhanced OCR with Multiple Configurations ---
                     ocr_configs = [
                         '-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 13 --oem 3', # Good for single chars like 'I'
+                        '-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 10 --oem 3',  # Treat the image as a single text line
                         '-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 8 --oem 3',  # Treat the image as a single text line
                     ]
 
@@ -382,7 +384,7 @@ class WordGameBot:
                 else:
                     print(f"REJECTED OCR for '{roi_name}' - best result: '{best_char}' (confidence: {best_confidence})")
 
-            cv2.imwrite("debug_06_ocr_results.png", debug_image_ocr_results)
+            if self.debug_mode: cv2.imwrite("debug_06_ocr_results.png", debug_image_ocr_results)
 
             return matched_letters_coords
 
@@ -581,7 +583,14 @@ class WordGameBot:
                 print(f"Failed to spell: {word} (likely missing letter positions or wrong order)")
 
 if __name__ == "__main__":
-    bot = WordGameBot()
+    parser = argparse.ArgumentParser(description="Word Game Bot for automating gameplay.")
+    parser.add_argument('--no-commercial', action='store_true',
+                        help='If set, the bot will not attempt to exit commercials.')
+    parser.add_argument('--debug', action='store_true',
+                        help='If set, debug images will be saved for analysis.')
+    args = parser.parse_args()
+
+    bot = WordGameBot(debug_mode=args.debug) # Pass debug_mode to the bot
 
     while True:
         print("\n--- Starting New Cycle ---")
@@ -617,26 +626,37 @@ if __name__ == "__main__":
             bot.letter_rois_relative = None
             time.sleep(2) # Give some time for transition after a level or ad
             continue # Start next cycle to re-evaluate state
+        
+        if args.no_commercial: # Use args.no_commercial directly
+            full_screenshot = pyautogui.screenshot()
+            full_screenshot_cv = cv2.cvtColor(np.array(full_screenshot), cv2.COLOR_RGB2BGR)
+            bot.collect_buttons(full_screenshot_cv)
+        else:
+            # --- Stage 2: If game layout is NOT detected, check for commercials/exit buttons ---
+            print("Game layout not found. Checking for Commercial/Exit Button...")
+            exit_center = bot.exit_commersial()
+            if exit_center:
+                pyautogui.click(exit_center[0], exit_center[1])
+                print("Commercial clicked. Waiting for game to load/resume...")
+                time.sleep(5) # Give more time for the ad to close and game to appear
+                # After an ad, the game state might have changed, so invalidate current detections
+                bot.screen_region = None
+                bot.letter_rois_relative = None
+                continue # Re-evaluate state from the top
 
-        # --- Stage 2: If game layout is NOT detected, check for commercials/exit buttons ---
-        print("Game layout not found. Checking for Commercial/Exit Button...")
-        exit_center = bot.exit_commersial()
-        if exit_center:
-            pyautogui.click(exit_center[0], exit_center[1])
-            print("Commercial clicked. Waiting for game to load/resume...")
-            time.sleep(5) # Give more time for the ad to close and game to appear
-            # After an ad, the game state might have changed, so invalidate current detections
-            bot.screen_region = None
-            bot.letter_rois_relative = None
-            continue # Re-evaluate state from the top
-
-        # --- Stage 3: If game layout and ads are NOT detected, check for a 'Lightning Strike' button ---
-        print("Checking for failed commercial press")
-        google_play_found = bot.find_and_click_button(bot.google_play_template_path, 'Google Play', dont_click=True) # Use the new method
+        # --- Stage 3: If game layout and ads are NOT detected, check for other persistent buttons ---
+        print("Checking for failed commercial press or other persistent buttons...")
+        google_play_found = bot.find_and_click_button(bot.google_play_template_path, 'Google Play', dont_click=True)
         if google_play_found:
-            # If button was found and clicked, invalidate game area to force re-detection on new level
+            print("Google Play button detected. Attempting to navigate back to Word Nut.")
+            # Invalidate game area to force re-detection on new level
             bot.screen_region = None
             bot.letter_rois_relative = None
-            list_windows_found = bot.find_and_click_button(bot.list_windows_template_path, 'List Windows') # Use the new method
-            word_nut_found = bot.find_and_click_button(bot.word_nut_template_path, 'Word Nut') # Use the new method
+            list_windows_found = bot.find_and_click_button(bot.list_windows_template_path, 'List Windows')
+            # If the list windows button was found and clicked, try to find and click Word Nut
+            if list_windows_found:
+                word_nut_found = bot.find_and_click_button(bot.word_nut_template_path, 'Word Nut')
             continue # Go to the next cycle to detect game area/play
+
+        print("No specific action taken. Waiting before next cycle...")
+        time.sleep(5) # Add a small delay to prevent busy-waiting
