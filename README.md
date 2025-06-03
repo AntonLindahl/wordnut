@@ -36,5 +36,5 @@ Follow these steps to get started:
 1. **First levels**
     The first levels are not automated. These needs to be played until 5 letter game areas are used. This is level 18 i think.
 
-2. **Commercial**
-    Not all exit commercial picture are added, or they might be changed. Take a screenshot of the button that should exit the commercial, add it in reklam folder and re-run the script.
+2. **Restarting Wordnut for commercial**
+    Make sure WordNut is in the first Window of bluestacks

@@ -17,8 +17,6 @@ class WordGameBot:
         self.debug_mode = debug_mode # Store debug_mode
         self.load_word_dictionary()
 
-        # Dynamically load all image files from the 'reklam' folder for top-screen checks
-        self.x_button_templates_top = self.load_templates_from_folder("reklam") # Renamed for clarity
         # Dynamically load all image files from a new folder for full-screen checks
         self.x_button_templates_full = self.load_templates_from_folder("collect_buttons") # New attribute
 
@@ -92,7 +90,7 @@ class WordGameBot:
                 print(f"{label} button found at ({center_x}, {center_y}) with confidence {max_val:.2f}")
                 if not dont_click:
                     pyautogui.click(center_x, center_y)
-                    print("Clicked {label} button. Waiting for game to load...")
+                    print(f"Clicked {label} button. Waiting for game to load...")
                     time.sleep(3) # Give time for the level to load
                 return True
             else:
@@ -124,105 +122,6 @@ class WordGameBot:
         x, y = max_loc
         center = (x + w // 2, y + h // 2)
         return center
-
-    def preprocess_for_template_matching(self, image: np.ndarray, debug_prefix: str = "", invert_output: bool = True, apply_morphology: bool = True) -> np.ndarray:
-        """
-        Preprocesses an image for contour detection and template matching.
-        Saves intermediate steps for debugging if debug_mode is True.
-        """
-        if image is None or image.size == 0:
-            print(f"Warning: preprocess_for_template_matching received an empty image for {debug_prefix}")
-            return np.array([])
-
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        if self.debug_mode and debug_prefix: cv2.imwrite(f"{debug_prefix}_01_gray.png", gray)
-
-        blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-        if self.debug_mode and debug_prefix: cv2.imwrite(f"{debug_prefix}_02_blurred.png", blurred)
-
-        thresh_type = cv2.THRESH_BINARY_INV if invert_output else cv2.THRESH_BINARY
-
-        thresh = cv2.adaptiveThreshold(blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                       thresh_type, 15, 5)
-        if self.debug_mode and debug_prefix: cv2.imwrite(f"{debug_prefix}_03_thresh.png", thresh)
-
-        processed = thresh
-
-        if apply_morphology:
-            kernel = np.ones((3, 3), np.uint8)
-            processed = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=1)
-            processed = cv2.morphologyEx(processed, cv2.MORPH_OPEN, kernel, iterations=1)
-
-        if self.debug_mode and debug_prefix: cv2.imwrite(f"{debug_prefix}_04_processed.png", processed)
-
-        return processed
-
-    def exit_commersial(self):
-        """
-        Attempts to find and click the 'X' button using template matching.
-        Tries multiple templates if provided.
-        Checks only the top part of the screen first, then the full screen.
-        """
-        print("Attempting to find and click the 'X' button using template matching.")
-
-        timeout = 30 # seconds to try to find the X button
-        start_time = time.time()
-
-        while time.time() - start_time < timeout:
-            full_screenshot_cv = None
-            try:
-                full_screenshot = pyautogui.screenshot()
-                full_screenshot_cv = cv2.cvtColor(np.array(full_screenshot), cv2.COLOR_RGB2BGR)
-            except Exception as e:
-                print(f"Error capturing full screenshot for X button: {e}. Retrying...")
-                time.sleep(1)
-                continue
-
-            if full_screenshot_cv is None or full_screenshot_cv.size == 0:
-                print("Failed to capture full screenshot for X button detection. Retrying...")
-                time.sleep(1)
-                continue
-
-            # --- Stage 1: Check the top part of the screen ---
-            print("Checking the top part of the screen for X button.")
-            top_region_height = int(full_screenshot_cv.shape[0] * 0.20) # Adjust percentage as needed
-            top_screenshot_cv = full_screenshot_cv[0:top_region_height, :]
-            top_screenshot_gray = cv2.cvtColor(top_screenshot_cv, cv2.COLOR_BGR2GRAY)
-
-            for template_path in self.x_button_templates_top:
-                try:
-                    template = cv2.imread(template_path)
-                    if template is None:
-                        print(f"Warning: Could not load template image: {template_path}. Skipping.")
-                        continue
-
-                    template_gray = cv2.cvtColor(template, cv2.COLOR_BGR2GRAY)
-                    result = cv2.matchTemplate(top_screenshot_gray, template_gray, cv2.TM_CCOEFF_NORMED)
-                    min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
-
-                    confidence_threshold = 0.90 # High confidence for top region as X buttons are often clear
-
-                    if max_val >= confidence_threshold:
-                        h, w = template_gray.shape
-                        center_x = max_loc[0] + w // 2
-                        center_y = max_loc[1] + h // 2 # Y is already global within the top region
-
-                        print(f"X button found (TOP REGION) using template '{template_path}' at ({center_x}, {center_y}) with confidence {max_val:.2f}")
-                        return (center_x, center_y)
-                except Exception as e:
-                    print(f"Error during template matching for '{template_path}' in top region: {e}. Skipping.")
-
-            print("X button not detected in the top region. Moving to full screen check.")
-
-            exit_center = self.collect_buttons(full_screenshot_cv)
-            if exit_center:
-                return exit_center
-
-            print("X button not detected using any template in full screen. Retrying cycle.")
-            time.sleep(1)
-
-        print(f"Timeout reached. X button not found after {timeout} seconds.")
-        return False
 
     def collect_buttons(self, full_screenshot_cv):
         # --- Stage 2: Check the full screenshot ---
@@ -301,18 +200,10 @@ class WordGameBot:
                 roi_resized = cv2.resize(roi_gray, (roi_width * scale_factor, roi_height * scale_factor),
                                         interpolation=cv2.INTER_CUBIC)
 
-                roi_filtered = cv2.bilateralFilter(roi_resized, 9, 75, 75)
+                # Optional: Adjust contrast/brightness before filtering
+                # roi_resized = cv2.convertScaleAbs(roi_resized, alpha=1.3, beta=0) # Example adjustment
 
-                # Define thresholding methods to try
-                # Added a specific simple threshold that might work well for clear 'I's
-                threshold_methods = [
-                    ("otsu_inv", cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU),
-                    ("simple_inv", cv2.THRESH_BINARY_INV),
-                    ("adaptive_mean_inv", "adaptive_mean_inv"),     # New
-                    ("adaptive_gauss_inv", "adaptive_gauss_inv"),   # New
-                    ("adaptive_mean", "adaptive_mean"),             # New
-                    ("adaptive_gauss", "adaptive_gauss"),           # New
-                ]
+                roi_filtered = cv2.bilateralFilter(roi_resized, 9, 75, 75)
 
                 best_char = None
                 best_confidence = 0
@@ -321,27 +212,29 @@ class WordGameBot:
                 # Create a list of processed ROIs to try, prioritizing solid ones
                 processed_roi_candidates = []
 
+                # Increased kernel size for closing to ensure solidity
+                kernel_solid_medium = np.ones((5,5), np.uint8) # Slightly larger kernel for solidification
+                kernel_solid_small = np.ones((3,3), np.uint8)
+
+
                 # Method 1: OTSU (often good for consistent lighting)
                 _, roi_otsu_inv = cv2.threshold(roi_filtered, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
-                # Apply some closing to ensure solidity without overdoing it
-                kernel_solid = np.ones((3,3), np.uint8) # Slightly larger kernel for solidification
-                roi_otsu_inv_solid = cv2.morphologyEx(roi_otsu_inv, cv2.MORPH_CLOSE, kernel_solid, iterations=1)
+                roi_otsu_inv_solid = cv2.morphologyEx(roi_otsu_inv, cv2.MORPH_CLOSE, kernel_solid_medium, iterations=1)
                 processed_roi_candidates.append((roi_otsu_inv_solid, "otsu_inv_solid"))
                 if self.debug_mode: cv2.imwrite(f"debug_roi_{roi_name}_otsu_inv_solid.png", roi_otsu_inv_solid)
 
 
                 # Method 2: Simple Inverted Threshold (might work well if lighting is stable)
                 _, roi_simple_inv = cv2.threshold(roi_filtered, 150, 255, cv2.THRESH_BINARY_INV) # Experiment with 150
-                roi_simple_inv_solid = cv2.morphologyEx(roi_simple_inv, cv2.MORPH_CLOSE, kernel_solid, iterations=1)
+                roi_simple_inv_solid = cv2.morphologyEx(roi_simple_inv, cv2.MORPH_CLOSE, kernel_solid_medium, iterations=1)
                 processed_roi_candidates.append((roi_simple_inv_solid, "simple_inv_solid"))
                 if self.debug_mode: cv2.imwrite(f"debug_roi_{roi_name}_simple_inv_solid.png", roi_simple_inv_solid)
 
                 # Method 3: Adaptive Gaussian (if previous methods fail, ensure it produces solid characters)
-                # Make sure this adaptive thresholding *also* aims for solid characters, not outlines
+                # Adjust blocksize (e.g., 21) and C (e.g., 10)
                 roi_adaptive_gauss_inv = cv2.adaptiveThreshold(roi_filtered, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                                            cv2.THRESH_BINARY_INV, 15, 5) # Adjust blocksize (15) and C (5)
-                # Apply closing here too, if the adaptive thresholding tends to create outlines
-                roi_adaptive_gauss_inv_solid = cv2.morphologyEx(roi_adaptive_gauss_inv, cv2.MORPH_CLOSE, kernel_solid, iterations=1)
+                                                            cv2.THRESH_BINARY_INV, 21, 10) # Adjusted values
+                roi_adaptive_gauss_inv_solid = cv2.morphologyEx(roi_adaptive_gauss_inv, cv2.MORPH_CLOSE, kernel_solid_small, iterations=1)
                 processed_roi_candidates.append((roi_adaptive_gauss_inv_solid, "adaptive_gauss_inv_solid"))
                 if self.debug_mode: cv2.imwrite(f"debug_roi_{roi_name}_adaptive_gauss_inv_solid.png", roi_adaptive_gauss_inv_solid)
 
@@ -350,8 +243,11 @@ class WordGameBot:
                 for img_variant, method_label in processed_roi_candidates:
                     if img_variant is None or img_variant.size == 0: continue
 
+                    # Updated OCR configurations
                     ocr_configs = [
                         '-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 13 --oem 3',
+                        '-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 8 --oem 3', # Treat as a single word
+                        '-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 6 --oem 3', # Treat as a single block
                     ]
 
                     for config_idx, config in enumerate(ocr_configs):
@@ -377,7 +273,8 @@ class WordGameBot:
                         break # Break the loop over processed_roi_candidates if high confidence found
 
                 # Accept result only if confidence is reasonable
-                if best_char and best_confidence > 60: # Adjusted threshold. Start higher like 60-70.
+                # Increased acceptance threshold
+                if best_char and best_confidence > 70: # Adjusted threshold from 60 to 70
                     center_x_global = x_start + rel_w // 2 + self.screen_region[0]
                     center_y_global = y_start + rel_h // 2 + self.screen_region[1]
                     matched_letters_coords.append((best_char, (center_x_global, center_y_global)))
@@ -585,8 +482,6 @@ class WordGameBot:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Word Game Bot for automating gameplay.")
-    parser.add_argument('--no-commercial', action='store_true',
-                        help='If set, the bot will not attempt to exit commercials.')
     parser.add_argument('--debug', action='store_true',
                         help='If set, debug images will be saved for analysis.')
     args = parser.parse_args()
@@ -596,8 +491,8 @@ if __name__ == "__main__":
     while True:
         print("\n--- Starting New Cycle ---")
 
-        # --- Stage 3: If game layout and ads are NOT detected, check for a 'Lightning Strike' button ---
-        print("No game detected and no ad button found. Checking for a 'Lightning Strike' button or waiting.")
+        # --- Stage 1: If game layout and ads are NOT detected, check for a 'Lightning Strike' button ---
+        print("Checking for a 'Lightning Strike' button")
         lightning_strike_found = bot.find_and_click_button(bot.lightning_strike_template_path, 'Lightning Strike') # Use the new method
         if lightning_strike_found:
             # If button was found and clicked, invalidate game area to force re-detection on new level
@@ -606,8 +501,8 @@ if __name__ == "__main__":
             # The find_and_click_level_button already includes a sleep and prints for clicking
             continue # Go to the next cycle to detect game area/play
 
-        # --- Stage 3: If game layout and ads are NOT detected, check for a 'Start Level' button ---
-        print("No game detected and no ad button found. Checking for a 'Start Level' button or waiting.")
+        # --- Stage 2: If game layout and ads are NOT detected, check for a 'Start Level' button ---
+        print("Checking for a 'Start Level' button")
         start_button_found = bot.find_and_click_button(bot.level_button_template_path, 'Start Level') # Use the new method
         if start_button_found:
             # If button was found and clicked, invalidate game area to force re-detection on new level
@@ -616,7 +511,7 @@ if __name__ == "__main__":
             # The find_and_click_level_button already includes a sleep and prints for clicking
             continue # Go to the next cycle to detect game area/play
 
-        # --- Stage 1: Detect the game layout (5-letter or 6-letter) first ---
+        # --- Stage 3: Detect the game layout ---
         # This will set bot.screen_region and bot.letter_rois_relative if successful
         if bot.detect_game_layout():
             print("Game layout successfully detected. Proceeding to play level.")
@@ -625,40 +520,23 @@ if __name__ == "__main__":
             # to force re-detection on the next cycle, as levels change.
             bot.screen_region = None
             bot.letter_rois_relative = None
-            time.sleep(2) # Give some time for transition after a level or ad
+            time.sleep(8) # Give some time for transition after a level or ad
             continue # Start next cycle to re-evaluate state
         
-        if args.no_commercial: # Use args.no_commercial directly
-            full_screenshot = pyautogui.screenshot()
-            full_screenshot_cv = cv2.cvtColor(np.array(full_screenshot), cv2.COLOR_RGB2BGR)
-            exit_center = bot.collect_buttons(full_screenshot_cv)
-            if exit_center:
-                time.sleep(1) # Give more time for the ad to close and game to appear
-                pyautogui.click(exit_center[0], exit_center[1])
-                print("Commercial clicked. Waiting for game to load/resume...")
-                time.sleep(2) # Give more time for the ad to close and game to appear
-                # After an ad, the game state might have changed, so invalidate current detections
-                bot.screen_region = None
-                bot.letter_rois_relative = None
-                continue # Re-evaluate state from the top
-        else:
-            # --- Stage 2: If game layout is NOT detected, check for commercials/exit buttons ---
-            print("Game layout not found. Checking for Commercial/Exit Button...")
-            full_screenshot = pyautogui.screenshot()
-            full_screenshot_cv = cv2.cvtColor(np.array(full_screenshot), cv2.COLOR_RGB2BGR)
-            exit_center = bot.collect_buttons(full_screenshot_cv)
-            if exit_center:
-                time.sleep(1) # Give more time for the ad to close and game to appear
-                pyautogui.click(exit_center[0], exit_center[1])
-                print("Commercial clicked. Waiting for game to load/resume...")
-                time.sleep(4) # Give more time for the ad to close and game to appear
-                # After an ad, the game state might have changed, so invalidate current detections
-                bot.screen_region = None
-                bot.letter_rois_relative = None
-                continue # Re-evaluate state from the top
+        # --- Stage 4: If game layout is NOT detected, check for exit/collect buttons ---
+        print("Game layout not found. Checking for exit/collect Button...")
+        full_screenshot = pyautogui.screenshot()
+        full_screenshot_cv = cv2.cvtColor(np.array(full_screenshot), cv2.COLOR_RGB2BGR)
+        exit_center = bot.collect_buttons(full_screenshot_cv)
+        if exit_center:
+            pyautogui.click(exit_center[0], exit_center[1])
+            print("Button clicked. Waiting for game to load/resume...")
+            time.sleep(5)
+            bot.screen_region = None
+            bot.letter_rois_relative = None
+            continue # Re-evaluate state from the top
 
-        # --- Stage 3: If game layout and ads are NOT detected, check for other persistent buttons ---
-        print("Checking for failed commercial press or other persistent buttons...")
+        # --- Stage 5: Assume ad is playing, restarting game ---
         time.sleep(1) # Add a small delay to prevent busy-waiting
         bot.find_and_click_button(bot.bluestacks_home_template_path, 'Bluestacks Home')
         # Invalidate game area to force re-detection on new level
