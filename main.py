@@ -24,9 +24,8 @@ class WordGameBot:
 
         self.level_button_template_path = "templates/level_button.png" # Path to your level button template
         self.lightning_strike_template_path = "templates/ligtning_strike.png"
-        self.google_play_template_path = "templates/google_play_template.png"
-        self.list_windows_template_path = "templates/list_windows_template.png"
-        self.word_nut_template_path = "templates/word_nut_template.png"
+        self.bluestacks_home_template_path = "templates/bluestacks_home_template.png"
+        self.wordnut_game_template_path = "templates/wordnut_game_template.png"
 
 
         # Store both ROI configurations
@@ -645,7 +644,9 @@ if __name__ == "__main__":
         else:
             # --- Stage 2: If game layout is NOT detected, check for commercials/exit buttons ---
             print("Game layout not found. Checking for Commercial/Exit Button...")
-            exit_center = bot.exit_commersial()
+            full_screenshot = pyautogui.screenshot()
+            full_screenshot_cv = cv2.cvtColor(np.array(full_screenshot), cv2.COLOR_RGB2BGR)
+            exit_center = bot.collect_buttons(full_screenshot_cv)
             if exit_center:
                 time.sleep(1) # Give more time for the ad to close and game to appear
                 pyautogui.click(exit_center[0], exit_center[1])
@@ -658,17 +659,11 @@ if __name__ == "__main__":
 
         # --- Stage 3: If game layout and ads are NOT detected, check for other persistent buttons ---
         print("Checking for failed commercial press or other persistent buttons...")
-        google_play_found = bot.find_and_click_button(bot.google_play_template_path, 'Google Play', dont_click=True)
-        if google_play_found:
-            print("Google Play button detected. Attempting to navigate back to Word Nut.")
-            # Invalidate game area to force re-detection on new level
-            bot.screen_region = None
-            bot.letter_rois_relative = None
-            list_windows_found = bot.find_and_click_button(bot.list_windows_template_path, 'List Windows')
-            # If the list windows button was found and clicked, try to find and click Word Nut
-            if list_windows_found:
-                word_nut_found = bot.find_and_click_button(bot.word_nut_template_path, 'Word Nut')
-            continue # Go to the next cycle to detect game area/play
-
-        print("No specific action taken. Waiting before next cycle...")
-        time.sleep(5) # Add a small delay to prevent busy-waiting
+        time.sleep(1) # Add a small delay to prevent busy-waiting
+        bot.find_and_click_button(bot.bluestacks_home_template_path, 'Bluestacks Home')
+        # Invalidate game area to force re-detection on new level
+        bot.screen_region = None
+        bot.letter_rois_relative = None
+        list_windows_found = bot.find_and_click_button(bot.wordnut_game_template_path, 'Word Nut')
+        time.sleep(2) # Add a small delay to prevent busy-waiting
+        continue # Go to the next cycle to detect game area/play
