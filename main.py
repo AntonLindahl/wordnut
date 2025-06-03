@@ -215,7 +215,9 @@ class WordGameBot:
 
             print("X button not detected in the top region. Moving to full screen check.")
 
-            self.collect_buttons(full_screenshot_cv)
+            exit_center = self.collect_buttons(full_screenshot_cv)
+            if exit_center:
+                return exit_center
 
             print("X button not detected using any template in full screen. Retrying cycle.")
             time.sleep(1)
@@ -249,6 +251,7 @@ class WordGameBot:
                     return (center_x, center_y)
             except Exception as e:
                 print(f"Error during template matching for '{template_path}' in full screen: {e}. Skipping.")
+                return False
 
     def capture_game_area(self) -> np.ndarray:
         if self.screen_region:
@@ -316,67 +319,66 @@ class WordGameBot:
                 best_confidence = 0
                 best_method_name = ""
 
-                for method_name, thresh_type_flag in threshold_methods:
-                    roi_thresh = None
-                    if method_name == "otsu_inv":
-                        # For OTSU, the second parameter (threshold value) is ignored.
-                        _, roi_thresh = cv2.threshold(roi_filtered, 0, 255, thresh_type_flag)
-                    elif method_name == "simple_inv":
-                        # A fixed threshold (e.g., 150) can sometimes be robust for specific lighting
-                        _, roi_thresh = cv2.threshold(roi_filtered, 150, 255, thresh_type_flag)
-                    # Add more sophisticated adaptive thresholding if needed, e.g.,
-                    elif method_name == "adaptive_gauss_inv":
-                         roi_thresh = cv2.adaptiveThreshold(roi_filtered, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                                            cv2.THRESH_BINARY_INV, 15, 5)
+                # Create a list of processed ROIs to try, prioritizing solid ones
+                processed_roi_candidates = []
+
+                # Method 1: OTSU (often good for consistent lighting)
+                _, roi_otsu_inv = cv2.threshold(roi_filtered, 0, 255, cv2.THRESH_BINARY_INV | cv2.THRESH_OTSU)
+                # Apply some closing to ensure solidity without overdoing it
+                kernel_solid = np.ones((3,3), np.uint8) # Slightly larger kernel for solidification
+                roi_otsu_inv_solid = cv2.morphologyEx(roi_otsu_inv, cv2.MORPH_CLOSE, kernel_solid, iterations=1)
+                processed_roi_candidates.append((roi_otsu_inv_solid, "otsu_inv_solid"))
+                if self.debug_mode: cv2.imwrite(f"debug_roi_{roi_name}_otsu_inv_solid.png", roi_otsu_inv_solid)
 
 
-                    if roi_thresh is None: continue # Skip if thresholding failed
+                # Method 2: Simple Inverted Threshold (might work well if lighting is stable)
+                _, roi_simple_inv = cv2.threshold(roi_filtered, 150, 255, cv2.THRESH_BINARY_INV) # Experiment with 150
+                roi_simple_inv_solid = cv2.morphologyEx(roi_simple_inv, cv2.MORPH_CLOSE, kernel_solid, iterations=1)
+                processed_roi_candidates.append((roi_simple_inv_solid, "simple_inv_solid"))
+                if self.debug_mode: cv2.imwrite(f"debug_roi_{roi_name}_simple_inv_solid.png", roi_simple_inv_solid)
 
-                    # Refined morphological operations
-                    # Use slightly different kernels for better 'I' detection
-                    kernel_erode = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 2)) # Smaller vertical kernel for erosion
-                    kernel_dilate = cv2.getStructuringElement(cv2.MORPH_RECT, (1, 2)) # Smaller vertical kernel for dilation
-                    
-                    # Apply initial opening to remove small noise
-                    roi_cleaned = cv2.morphologyEx(roi_thresh, cv2.MORPH_OPEN, kernel_erode, iterations=1)
-                    
-                    # Dilate slightly to connect broken lines, but be careful not to merge 'I' with adjacent characters
-                    roi_final = cv2.dilate(roi_cleaned, kernel_dilate, iterations=1)
-                    
-                    # Save processed ROI for debugging only if debug_mode is True
-                    if self.debug_mode:
-                        cv2.imwrite(f"debug_roi_{roi_name}_{method_name}.png", roi_final)
-                        cv2.imwrite(f"debug_roi_{roi_name}_{method_name}_inverted.png", cv2.bitwise_not(roi_final)) # Save inverted too
+                # Method 3: Adaptive Gaussian (if previous methods fail, ensure it produces solid characters)
+                # Make sure this adaptive thresholding *also* aims for solid characters, not outlines
+                roi_adaptive_gauss_inv = cv2.adaptiveThreshold(roi_filtered, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+                                                            cv2.THRESH_BINARY_INV, 15, 5) # Adjust blocksize (15) and C (5)
+                # Apply closing here too, if the adaptive thresholding tends to create outlines
+                roi_adaptive_gauss_inv_solid = cv2.morphologyEx(roi_adaptive_gauss_inv, cv2.MORPH_CLOSE, kernel_solid, iterations=1)
+                processed_roi_candidates.append((roi_adaptive_gauss_inv_solid, "adaptive_gauss_inv_solid"))
+                if self.debug_mode: cv2.imwrite(f"debug_roi_{roi_name}_adaptive_gauss_inv_solid.png", roi_adaptive_gauss_inv_solid)
 
-                    # --- Enhanced OCR with Multiple Configurations ---
+
+                # Loop through candidates, stopping if a high confidence match is found
+                for img_variant, method_label in processed_roi_candidates:
+                    if img_variant is None or img_variant.size == 0: continue
+
                     ocr_configs = [
-                        '-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 13 --oem 3', # Good for single chars like 'I'
-                        '-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 10 --oem 3',  # Treat the image as a single text line
-                        '-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 8 --oem 3',  # Treat the image as a single text line
+                        '-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 13 --oem 3',
                     ]
 
-                    # Try each OCR config for the current preprocessed image and its inversion
                     for config_idx, config in enumerate(ocr_configs):
-                        for img_variant, label_suffix in [(roi_final, ""), (cv2.bitwise_not(roi_final), " (inverted)")]:
-                            try:
-                                data = pytesseract.image_to_data(img_variant, config=config, output_type=pytesseract.Output.DICT)
-                                
-                                # It's better to iterate through all detected words, not just the first one
-                                for i in range(len(data['text'])):
-                                    text = data['text'][i].strip()
-                                    confidence = int(data['conf'][i])
+                        try:
+                            data = pytesseract.image_to_data(img_variant, config=config, output_type=pytesseract.Output.DICT)
 
-                                    if len(text) == 1 and text.isalpha() and text.isupper() and confidence > best_confidence:
-                                        best_char = text
-                                        best_confidence = confidence
-                                        best_method_name = method_name + label_suffix + f" (config {config_idx})"
-                                        # print(f"OCR candidate: {text} (confidence: {confidence}) - method: {best_method_name}")
-                                        
-                            except Exception as e:
-                                print(f"OCR error with method {method_name}{label_suffix}, config {config_idx}: {e}")
+                            for i in range(len(data['text'])):
+                                text = data['text'][i].strip()
+                                confidence = int(data['conf'][i])
+
+                                if len(text) == 1 and text.isalpha() and text.isupper() and confidence > best_confidence:
+                                    best_char = text
+                                    best_confidence = confidence
+                                    best_method_name = method_label + f" (config {config_idx})"
+                                    # If you find a very high confidence match, you might want to break early
+                                    if best_confidence > 90: # High confidence, likely correct
+                                        break
+                            if best_confidence > 90: # Break outer loop too
+                                break
+                        except Exception as e:
+                            print(f"OCR error with method {method_label}, config {config_idx}: {e}")
+                    if best_confidence > 90:
+                        break # Break the loop over processed_roi_candidates if high confidence found
 
                 # Accept result only if confidence is reasonable
-                if best_char and best_confidence > 30:  # Adjust threshold as needed
+                if best_char and best_confidence > 60: # Adjusted threshold. Start higher like 60-70.
                     center_x_global = x_start + rel_w // 2 + self.screen_region[0]
                     center_y_global = y_start + rel_h // 2 + self.screen_region[1]
                     matched_letters_coords.append((best_char, (center_x_global, center_y_global)))
@@ -630,15 +632,25 @@ if __name__ == "__main__":
         if args.no_commercial: # Use args.no_commercial directly
             full_screenshot = pyautogui.screenshot()
             full_screenshot_cv = cv2.cvtColor(np.array(full_screenshot), cv2.COLOR_RGB2BGR)
-            bot.collect_buttons(full_screenshot_cv)
+            exit_center = bot.collect_buttons(full_screenshot_cv)
+            if exit_center:
+                time.sleep(1) # Give more time for the ad to close and game to appear
+                pyautogui.click(exit_center[0], exit_center[1])
+                print("Commercial clicked. Waiting for game to load/resume...")
+                time.sleep(2) # Give more time for the ad to close and game to appear
+                # After an ad, the game state might have changed, so invalidate current detections
+                bot.screen_region = None
+                bot.letter_rois_relative = None
+                continue # Re-evaluate state from the top
         else:
             # --- Stage 2: If game layout is NOT detected, check for commercials/exit buttons ---
             print("Game layout not found. Checking for Commercial/Exit Button...")
             exit_center = bot.exit_commersial()
             if exit_center:
+                time.sleep(1) # Give more time for the ad to close and game to appear
                 pyautogui.click(exit_center[0], exit_center[1])
                 print("Commercial clicked. Waiting for game to load/resume...")
-                time.sleep(5) # Give more time for the ad to close and game to appear
+                time.sleep(4) # Give more time for the ad to close and game to appear
                 # After an ad, the game state might have changed, so invalidate current detections
                 bot.screen_region = None
                 bot.letter_rois_relative = None
