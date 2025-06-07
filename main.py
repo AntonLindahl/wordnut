@@ -27,31 +27,41 @@ class WordGameBot:
 
 
         # Store both ROI configurations
+        self.letter_rois_relative_7_hard = {
+            "top_letter": (208, 95, 66, 66),
+            "left_letter": (88, 150, 66, 66),
+            "right_letter": (322, 150, 66, 66),
+            "bottom_left_letter": (63, 277, 66, 66),
+            "bottom_right_letter": (355, 277, 66, 66),
+            "bottom_lower_left_letter": (140, 379, 66, 66),
+            "bottom_lower_right_letter": (273, 379, 66, 66),
+        }
+
         self.letter_rois_relative_7_letters = {
-            "top_letter": (208, 78, 66, 60),
-            "left_letter": (90, 132, 66, 60),
-            "right_letter": (320, 132, 66, 60),
-            "bottom_left_letter": (58, 260, 66, 60),
-            "bottom_right_letter": (355, 260, 66, 60),
-            "bottom_lower_left_letter": (140, 360, 66, 60),
-            "bottom_lower_right_letter": (265, 360, 66, 60),
+            "top_letter": (208, 78, 66, 66),
+            "left_letter": (90, 132, 66, 66),
+            "right_letter": (320, 132, 66, 66),
+            "bottom_left_letter": (58, 260, 66, 66),
+            "bottom_right_letter": (350, 260, 66, 66),
+            "bottom_lower_left_letter": (138, 358, 66, 66),
+            "bottom_lower_right_letter": (265, 358, 66, 66),
         }
 
         self.letter_rois_relative_6_letters = {
-            "top_letter": (212, 98, 66, 60),
-            "left_letter": (90, 171, 66, 60),
-            "right_letter": (341, 171, 66, 60),
-            "bottom_left_letter": (89, 315, 66, 60),
-            "bottom_right_letter": (339, 315, 66, 60),
-            "bottom_middle_letter": (210, 388, 66, 60),
+            "top_letter": (212, 98, 66, 66),
+            "left_letter": (90, 171, 66, 66),
+            "right_letter": (341, 171, 66, 66),
+            "bottom_left_letter": (89, 315, 66, 66),
+            "bottom_right_letter": (339, 313, 66, 66),
+            "bottom_middle_letter": (210, 388, 66, 66),
         }
 
         self.letter_rois_relative_5_letters = {
-            "top_letter": (210, 102, 66, 60),
-            "left_letter": (78, 200, 66, 60),
-            "right_letter": (347, 200, 66, 60),
-            "bottom_left_letter": (127, 358, 66, 60),
-            "bottom_right_letter": (295, 358, 66, 60),
+            "top_letter": (210, 102, 66, 66),
+            "left_letter": (78, 200, 66, 66),
+            "right_letter": (347, 200, 66, 66),
+            "bottom_left_letter": (127, 358, 66, 66),
+            "bottom_right_letter": (295, 358, 66, 66),
         }
 
         # self.letter_rois_relative will be set dynamically by detect_game_layout
@@ -138,7 +148,7 @@ class WordGameBot:
                 result = cv2.matchTemplate(full_screenshot_gray, template_gray, cv2.TM_CCOEFF_NORMED)
                 min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
 
-                confidence_threshold = 0.80 # Slightly lower confidence for full screen
+                confidence_threshold = 0.70 # Slightly lower confidence for full screen
 
                 if max_val >= confidence_threshold:
                     h, w = template_gray.shape
@@ -195,7 +205,7 @@ class WordGameBot:
                     continue
 
                 # --- Enhanced OCR Preprocessing ---
-                scale_factor = 4 # Increased scale factor for potentially better detail on thin characters like 'I'
+                scale_factor = 6 # Increased scale factor for potentially better detail on thin characters like 'I'
                 roi_height, roi_width = roi_gray.shape
                 roi_resized = cv2.resize(roi_gray, (roi_width * scale_factor, roi_height * scale_factor),
                                         interpolation=cv2.INTER_CUBIC)
@@ -203,7 +213,7 @@ class WordGameBot:
                 # Optional: Adjust contrast/brightness before filtering
                 # roi_resized = cv2.convertScaleAbs(roi_resized, alpha=1.3, beta=0) # Example adjustment
 
-                roi_filtered = cv2.bilateralFilter(roi_resized, 9, 75, 75)
+                roi_filtered = cv2.bilateralFilter(roi_resized, 5, 75, 75)
 
                 best_char = None
                 best_confidence = 0
@@ -225,19 +235,16 @@ class WordGameBot:
 
 
                 # Method 2: Simple Inverted Threshold (might work well if lighting is stable)
-                _, roi_simple_inv = cv2.threshold(roi_filtered, 150, 255, cv2.THRESH_BINARY_INV) # Experiment with 150
+                _, roi_simple_inv = cv2.threshold(roi_filtered, 210, 190, cv2.THRESH_BINARY_INV) # Experiment with 150
                 roi_simple_inv_solid = cv2.morphologyEx(roi_simple_inv, cv2.MORPH_CLOSE, kernel_solid_medium, iterations=1)
                 processed_roi_candidates.append((roi_simple_inv_solid, "simple_inv_solid"))
                 if self.debug_mode: cv2.imwrite(f"debug_roi_{roi_name}_simple_inv_solid.png", roi_simple_inv_solid)
 
-                # Method 3: Adaptive Gaussian (if previous methods fail, ensure it produces solid characters)
-                # Adjust blocksize (e.g., 21) and C (e.g., 10)
-                roi_adaptive_gauss_inv = cv2.adaptiveThreshold(roi_filtered, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-                                                            cv2.THRESH_BINARY_INV, 21, 10) # Adjusted values
-                roi_adaptive_gauss_inv_solid = cv2.morphologyEx(roi_adaptive_gauss_inv, cv2.MORPH_CLOSE, kernel_solid_small, iterations=1)
-                processed_roi_candidates.append((roi_adaptive_gauss_inv_solid, "adaptive_gauss_inv_solid"))
-                if self.debug_mode: cv2.imwrite(f"debug_roi_{roi_name}_adaptive_gauss_inv_solid.png", roi_adaptive_gauss_inv_solid)
-
+                # Method 24: Simple Inverted Threshold (Works for F but not I)
+                _, roi_simple_inv = cv2.threshold(roi_filtered, 190, 240, cv2.THRESH_BINARY_INV) # Experiment with 150
+                roi_simple_inv_solid = cv2.morphologyEx(roi_simple_inv, cv2.MORPH_CLOSE, kernel_solid_medium, iterations=1)
+                processed_roi_candidates.append((roi_simple_inv_solid, "simple_inv_solid"))
+                if self.debug_mode: cv2.imwrite(f"debug_roi_{roi_name}_simple_inv_solid_2.png", roi_simple_inv_solid)
 
                 # Loop through candidates, stopping if a high confidence match is found
                 for img_variant, method_label in processed_roi_candidates:
@@ -248,6 +255,7 @@ class WordGameBot:
                         '-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 13 --oem 3',
                         '-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 8 --oem 3', # Treat as a single word
                         '-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 6 --oem 3', # Treat as a single block
+                        '-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ --psm 10 --oem 3',
                     ]
 
                     for config_idx, config in enumerate(ocr_configs):
@@ -274,7 +282,7 @@ class WordGameBot:
 
                 # Accept result only if confidence is reasonable
                 # Increased acceptance threshold
-                if best_char and best_confidence > 70: # Adjusted threshold from 60 to 70
+                if best_char and best_confidence > 60: # Adjusted threshold from 60 to 70
                     center_x_global = x_start + rel_w // 2 + self.screen_region[0]
                     center_y_global = y_start + rel_h // 2 + self.screen_region[1]
                     matched_letters_coords.append((best_char, (center_x_global, center_y_global)))
@@ -380,6 +388,7 @@ class WordGameBot:
         # Define templates to check and their corresponding ROI sets
         template_configs = [
             ("templates/game_area_template_7_letters.png", self.letter_rois_relative_7_letters, "7-letter"),
+            ("templates/game_area_template_7_hard.png", self.letter_rois_relative_7_hard, "7-letter"),
             ("templates/game_area_template_6_letters.png", self.letter_rois_relative_6_letters, "6-letter"),
             ("templates/game_area_template_5_letters.png", self.letter_rois_relative_5_letters, "5-letter"),
         ]
