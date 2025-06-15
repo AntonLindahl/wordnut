@@ -41,8 +41,8 @@ class WordGameBot:
             "top_letter": (208, 78, 66, 66),
             "left_letter": (90, 132, 66, 66),
             "right_letter": (320, 132, 66, 66),
-            "bottom_left_letter": (58, 260, 66, 66),
-            "bottom_right_letter": (350, 260, 66, 66),
+            "bottom_left_letter": (58, 261, 66, 66),
+            "bottom_right_letter": (350, 261, 66, 66),
             "bottom_lower_left_letter": (138, 358, 66, 66),
             "bottom_lower_right_letter": (265, 358, 66, 66),
         }
@@ -148,7 +148,7 @@ class WordGameBot:
                 result = cv2.matchTemplate(full_screenshot_gray, template_gray, cv2.TM_CCOEFF_NORMED)
                 min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(result)
 
-                confidence_threshold = 0.70 # Slightly lower confidence for full screen
+                confidence_threshold = 0.75 # Slightly lower confidence for full screen
 
                 if max_val >= confidence_threshold:
                     h, w = template_gray.shape
@@ -241,7 +241,7 @@ class WordGameBot:
                 if self.debug_mode: cv2.imwrite(f"debug_roi_{roi_name}_simple_inv_solid.png", roi_simple_inv_solid)
 
                 # Method 24: Simple Inverted Threshold (Works for F but not I)
-                _, roi_simple_inv = cv2.threshold(roi_filtered, 190, 240, cv2.THRESH_BINARY_INV) # Experiment with 150
+                _, roi_simple_inv = cv2.threshold(roi_filtered, 190, 255, cv2.THRESH_BINARY_INV) # Experiment with 150
                 roi_simple_inv_solid = cv2.morphologyEx(roi_simple_inv, cv2.MORPH_CLOSE, kernel_solid_medium, iterations=1)
                 processed_roi_candidates.append((roi_simple_inv_solid, "simple_inv_solid"))
                 if self.debug_mode: cv2.imwrite(f"debug_roi_{roi_name}_simple_inv_solid_2.png", roi_simple_inv_solid)
@@ -388,7 +388,7 @@ class WordGameBot:
         # Define templates to check and their corresponding ROI sets
         template_configs = [
             ("templates/game_area_template_7_letters.png", self.letter_rois_relative_7_letters, "7-letter"),
-            ("templates/game_area_template_7_hard.png", self.letter_rois_relative_7_hard, "7-letter"),
+            ("templates/game_area_template_7_hard.png", self.letter_rois_relative_7_hard, "7-letter-hard"),
             ("templates/game_area_template_6_letters.png", self.letter_rois_relative_6_letters, "6-letter"),
             ("templates/game_area_template_5_letters.png", self.letter_rois_relative_5_letters, "5-letter"),
         ]
