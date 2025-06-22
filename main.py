@@ -60,8 +60,8 @@ class WordGameBot:
             "top_letter": (210, 102, 66, 66),
             "left_letter": (78, 200, 66, 66),
             "right_letter": (347, 200, 66, 66),
-            "bottom_left_letter": (127, 358, 66, 66),
-            "bottom_right_letter": (295, 358, 66, 66),
+            "bottom_left_letter": (126, 355, 66, 66),
+            "bottom_right_letter": (295, 355, 66, 66),
         }
 
         # self.letter_rois_relative will be set dynamically by detect_game_layout
@@ -205,7 +205,7 @@ class WordGameBot:
                     continue
 
                 # --- Enhanced OCR Preprocessing ---
-                scale_factor = 6 # Increased scale factor for potentially better detail on thin characters like 'I'
+                scale_factor = 10 # Increased scale factor for potentially better detail on thin characters like 'I'
                 roi_height, roi_width = roi_gray.shape
                 roi_resized = cv2.resize(roi_gray, (roi_width * scale_factor, roi_height * scale_factor),
                                         interpolation=cv2.INTER_CUBIC)
@@ -374,7 +374,7 @@ class WordGameBot:
             time.sleep(0.05)
 
         pyautogui.mouseUp()
-        time.sleep(0.5)
+        time.sleep(1)
         return True
 
     def detect_game_layout(self) -> bool:
